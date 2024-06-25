@@ -2,12 +2,12 @@
 ############### 1. WALS (versioning) ###################
 ########################################################
 
-# import packages
+# import package
 library(tidyverse)
 
 # import data
-wals_values_2008 <- read_csv("wals2008_values.csv")
-wals_languages_2008 <- read_csv("wals2008_languages.csv")
+wals_values_2008 <- read_csv("wals_2008_values.csv")
+wals_languages_2008 <- read_csv("wals_2008_languages.csv")
 
 wals_values_2020.3 <- read_csv("wals_2020v3_values.csv")
 wals_languages_2020.3 <- read_csv("wals_2020v3_languages_corr.csv")
@@ -42,43 +42,7 @@ sum(values_both$Value_2008 != values_both$Value_2020.3)
 round(sum(values_both$Value_2008 != values_both$Value_2020.3) / nrow(values_both) * 100, 2)
 # 25.77%
 
-### 2. discrepancies per lang
-
-langs_with_errors1 <-
-  filter(values_both, Value_2008 != Value_2020.3) %>%
-  pull(Language_ID) %>%
-  unique()
-
-errors_per_lang1 <- filter(values_both, Language_ID %in% langs_with_errors1) %>%
-  group_by(Language_ID) %>%
-  summarise(
-    n_errors = sum(Value_2008!=Value_2020.3)
-    , n_total  = n()) %>%
-  mutate(proportion = n_errors / n_total) %>% 
-  as.data.frame() %>% 
-  arrange(desc(proportion))
-
-head(errors_per_lang1)
-
-### 3. discrepancies per feature
-
-feat_with_errors1 <-
-  filter(values_both, Value_2008 != Value_2020.3) %>%
-  pull(Parameter_ID) %>%
-  unique()
-
-errors_per_feat1 <- filter(values_both, Parameter_ID %in% feat_with_errors1) %>%
-  group_by(Parameter_ID) %>%
-  summarise(
-    n_errors = sum(Value_2008!=Value_2020.3)
-    , n_total  = n()) %>%
-  mutate(proportion = n_errors / n_total) %>% 
-  as.data.frame() %>% 
-  arrange(desc(proportion))
-
-head(errors_per_feat1)
-
-### 4. additionally: checking all NAs
+### 2. additionally: checking all NAs
 nrow(filter(values_both, Value_2020.3 == -1))
 # 522 NAs in 2020v3 ('removed datapoints')
 nrow(filter(values_both, Value_2008 == -2))
@@ -193,54 +157,65 @@ head(errors_per_feat3)
 ################ 2. Grambank: Siwi #####################
 ########################################################
 
-# load packages
-library(tidyverse)
+# import packages
+if (!require("stringr", quietly = TRUE)) install.packages("stringr", quiet = TRUE)
+library(stringr, quietly = TRUE)
+if (!require("irr", quietly = TRUE)) install.packages("irr", quiet = TRUE)
+library(irr, quietly = TRUE)
 
 # import data
 Siwi_orig <- readr::read_tsv("NB_siwi1239.tsv") # original Grambank 1.0 version
-Siwi_corr <- readr::read_tsv("NB_siwi1239_corrections.tsv") # version with all *accepted* corrections
+Siwi_corr <- readr::read_tsv("NB_siwi1239_corrections.tsv") # version with all *accepted* corrections 
+
+GB <- readr::read_csv("gb_values.csv")
 
 # merge original and corrected
 Siwi_comp <- dplyr::left_join(Siwi_corr, Siwi_orig, by = "Feature_ID")
 Siwi_comp <- Siwi_comp %>% 
   dplyr::transmute(
-    Feature_ID,
+    Parameter_ID = Feature_ID,
     value_orig = Value.y,
-    value_corr = Value.x
+    value_corr = Value.x,
+    Source_orig = Source.y,
+    Source_corr = Source.x 
   )
 
 # note: there are 220 instead of 195 rows
-length(unique(Siwi_comp$Feature_ID))
-# 25 features which are no longer used in Grambank are still present
-
-# all 220 features
-Siwi_comp_220 <- Siwi_comp
-
+length(unique(Siwi_comp$Parameter_ID))
+# 25 features (with unique IDs!) which are no longer used in Grambank are still present
 # only retained features
-Siwi_comp_195 <- filter(Siwi_comp, Feature_ID %in% GB$Feature_ID)
+Siwi_comp_195 <- filter(Siwi_comp, Parameter_ID %in% GB$Parameter_ID)
 
 # error rate
-GB_Siwi_error <- irr::agree(Siwi_comp_195[2:3])
+GB_Siwi_error <- irr::agree(Siwi_comp_195[2:3]) # in this case, the disagreement can be taken to be the error rate
 round(100- GB_Siwi_error$value, 2)
 # 16.67% error rate
-  # this is the best estimate for comparability with other GB error rates
-
-# alternatively use original 220 variable set
-GB_Siwi_error2 <- irr::agree(Siwi_comp_220[2:3])
-round(100- GB_Siwi_error2$value, 2)
-# 14.57% error rate
 
 # taking NA vs non-NA as mistake by omission
-Siwi_comp_220[2][is.na(Siwi_comp_220[2])] <- "?"
 Siwi_comp_195[2][is.na(Siwi_comp_195[2])] <- "?"
 
-GB_Siwi_error3 <- irr::agree(Siwi_comp_195[2:3])
-round(100 - GB_Siwi_error3$value, 2)
+GB_Siwi_error2 <- irr::agree(Siwi_comp_195[2:3])
+round(100 - GB_Siwi_error2$value, 2)
 # 25.64% error rate
 
-GB_Siwi_error4 <- irr::agree(Siwi_comp_220[2:3])
-round(100- GB_Siwi_error4$value, 2)
-# 22.73% error rate
+# direct error rate
+# counting only mistakes based on same source, but discounting the note "Lameen Souag p.c. 2023" (if it is not the only source)
+
+Siwi_comp2 <- Siwi_comp_195
+
+Siwi_comp2$Source_orig <- str_remove_all(Siwi_comp2$Source_orig, ":\\d+[^)]*\\)|[():]")
+Siwi_comp2$Source_corr <- str_remove_all(Siwi_comp2$Source_corr, ":\\d+[^)]*\\)|[():]")
+Siwi_comp2$Source_corr <- str_remove_all(Siwi_comp2$Source_corr, "Lameen Souag p.c. 2023")
+Siwi_comp2$Source_orig[is.na(Siwi_comp2$Source_orig)] <- "null"
+Siwi_comp2$Source_corr <- str_replace(str_squish(Siwi_comp2$Source_corr), ";$", "")
+
+Siwi_comp2 <- Siwi_comp2 %>% 
+  mutate(same_source = (Siwi_comp2[4] == Siwi_comp2[5]))
+Siwi_comp_saso <- filter(Siwi_comp2, same_source == T)
+
+GB_Siwi_error3 <- irr::agree(Siwi_comp_saso[2:3]) # disagreement can be taken to be the error rate
+round(100- GB_Siwi_error3$value, 2)
+# 2.74% error rate
 
 
 ########################################################
@@ -248,7 +223,7 @@ round(100- GB_Siwi_error4$value, 2)
 ########################################################
 
 # https://github.com/grambank/grambank/issues/34
-# 7 mistakes were criticised, 7 were accepted
+# 7 mistakes were criticized, 7 were accepted
 round(7/195 * 100, 2)
  # 3.59% error rate
 
@@ -333,45 +308,50 @@ round(10/112 * 100, 2)
 
  # Cysouw mentions 7 mistakes in 119 data points. 
  # It is unclear why there would be 119 instead of 112 data points.
- # Thus we ammend this number to be 112.
  
 # all inaccuracies
-round(7/112 * 100, 2) 
- # 6.25% error rate
+round(7/119 * 100, 2) 
+ # 5.88% error rate
 
 # strict annotation error
-round(2/112 * 100, 2)
- # 1.79% error rate
+round(2/119 * 100, 2)
+ # 1.68% error rate
 
 
 ########################################################
 ############## 8. WALS: Tukang Besi ####################
 ########################################################
 
-# originally there was nothing to calculate, Hammarström (2016) gives 20/142
+# Hammarström (2016) gives 20/142
 round(20/142 * 100, 2)
   # 14.08% error rate
 
-# however there are only 120 data points on Tukang Besi
+# however in the first digitized version there are only 120 data points on Tukang Besi
 nrow(filter(wals_2008, Name == "Tukang Besi"))
  # 120
 
-# thus it would need to be
+# so the error rate (even incl. indirect mistakes) should be:
 round(20/120 * 100, 2)
  # 16.67% error rate
 
+# we will still report the original numbers as we cannot be completely sure that it was not changed from 2005 to 2008.
 
 ########################################################
 ############# 9. WALS: 81A (Word order) ################
 ########################################################
 
 # 16.3% disagreement on 1228 values.
+# under the assumption that in disagreement one of the two coders will be correct:
+
+16.3 / 2
+# 8.15%
+
+# otherwise: 16.3% directly
 
 # ~ 1/3 of this is about disagreement about the same source
-round(16.3/3, 2)
- # 5.43%
-
-# from disagreement to error rate
+# again under the assumption that one will be correct
+round((16.3/3)/2)
+ # ~ 3%
 
 
 ########################################################
@@ -380,16 +360,19 @@ round(16.3/3, 2)
 
 disagreement_total <- (7876-1557-3573)/7876 * 100
 error_total <- round((disagreement_total / 2), 2)
+error_total
 # 17.43%
 
 disagreement_noNA <- (1 - (3753/4323)) * 100
 error_noNA <- round(c((disagreement_noNA / 2) , ((disagreement_noNA / 2) + (disagreement_noNA / 2) * (6/195))), 2) # adjusting for 3% non binary features
+error_noNA
 # 6.59 -- 6.80 %
 round(mean(error_noNA), 2)
 # 6.70 %
 
 disagreement_noNA_Same <- (1 - 0.9) * 100
 error_noNA_Same <- round(c((disagreement_noNA_Same / 2) , ((disagreement_noNA_Same / 2) + (disagreement_noNA_Same / 2) * (6/195))), 2) # adjusting for 3% non binary features
+error_noNA_Same
 # 5.00 -- 5.15 %
 round(mean(error_noNA_Same), 2)
 # 5.08 %
@@ -400,16 +383,19 @@ round(mean(error_noNA_Same), 2)
 ########################################################
 
 average_error_RAs <- round(c((((22 + 21 + 13 + 9 + 9) / 2) / 5), (((22 + 21 + 13 + 9 + 9) / 2) / 5) + (6/195) * (22 + 21 + 13 + 9 + 9) / 2 / 5), 2) # adjusting for 3% non binary features
+average_error_RAs
 # 7.40 -- 7.63 %
 round(mean(average_error_RAs), 2)
 # 7.52
 
 average_error_RAvL <- round(c((13 + 11 + 5 + 4) / 2 / 5, ((13 + 11 + 5 + 4) / 2 / 5) + (6/195) * ((13 + 11 + 5 + 4) / 2 / 5)), 2)
+average_error_RAvL
 # 3.30 -- 3.40 
 round(mean(average_error_RAvL), 2)
 # 3.35 %
 
 average_error_both <- round(c((22 + 21 + 13 + 9 + 9 + 13 + 11 + 5 + 4) / 2 / 9, ((22 + 21 + 13 + 9 + 9 + 13 + 11 + 5 + 4) / 2 / 9) + ((22 + 21 + 13 + 9 + 9 + 13 + 11 + 5 + 4) / 2 / 9) * (6/195)), 2)
+average_error_both
 # 5.94 -- 6.13 %
 round(mean(average_error_both), 2)
 # 6.04 %
@@ -418,6 +404,8 @@ round(mean(average_error_both), 2)
 ########################################################
 ################### 12. Kinbank ########################
 ########################################################
+
+# binarized structural pattern (dis)agreement, thus simply /2
 
 structural_error <- (1 - 0.8) / 2 * 100
 # 10.00 %
