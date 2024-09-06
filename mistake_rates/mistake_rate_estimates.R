@@ -24,64 +24,85 @@ wals_languages_2020.3 <- read_csv("../data/wals_2020v3_languages_corr.csv")
 # data transformation
 
 ## change old ID format (2008) into new format for comparability
-wals_values_2008 <-
+wals_values_2008_A <-
   wals_values_2008 %>%
   mutate(Parameter_ID = str_c(Parameter_ID, "A"))
 
 ## combining 2008 and 2020v3 (using 'full_join', keeping all rows with unmatched IDs!)
+wals_values_2008_A <- wals_values_2008_A %>% 
+  select(Language_ID, Parameter_ID, Source, Value)  %>%
+  rename(Value_2008 = Value, Source_2008 = Source)
+
+wals_values_2020.3 <- wals_values_2020.3 %>% 
+  select(Language_ID, Parameter_ID, Source, Value) %>%
+  rename(Value_2020.3 = Value, Source_2020.3 = Source)
+
 values_both <- full_join(
-  select(wals_values_2008, Language_ID, Parameter_ID, Value) %>%
-    rename(Value_2008 = Value)
-  , select(wals_values_2020.3, Language_ID, Parameter_ID, Value) %>%
-    rename(Value_2020.3 = Value)) %>%
+  wals_values_2008_A, wals_values_2020.3) %>%
   mutate(
     Value_2020.3 = replace_na(Value_2020.3, -1) # replacing NA with negative numbers for better computability
-    , Value_2008 = replace_na(Value_2008, -2))
+    , Value_2008 = replace_na(Value_2008, -2)
+    , value_discrepancy = (Value_2008 != Value_2020.3))
 
 
 # data analysis
 
-## version 1: including all NAs
-
-sum(values_both$Value_2008 != values_both$Value_2020.3)
-  # 19842
-round(sum(values_both$Value_2008 != values_both$Value_2020.3) / nrow(values_both) * 100, 2)
-  # 25.77%
-
+### first survey (including all NAs)
+#sum(values_both$Value_2008 != values_both$Value_2020.3)
+#  # 19842
+#round(sum(values_both$Value_2008 != values_both$Value_2020.3) / nrow(values_both) * 100, 2)
+#  # 25.77%
 ### additionally: checking all NAs
 #nrow(filter(values_both, Value_2020.3 == -1))
-## 522 NAs in 2020v3 ('removed datapoints')
+#  # 522 NAs in 2020v3 ('removed datapoints')
 #nrow(filter(values_both, Value_2008 == -2))
-## 18932 NAs in 2008 ('added datapoints')
+#  # 18932 NAs in 2008 ('added datapoints')
 #nrow(values_both) - nrow(filter(values_both, Value_2020.3 == -1)) - nrow(filter(values_both, Value_2008 == -2))
-## 57543 (non-NA values)
+#  # 57543 (non-NA values)
 
 
-## version 2: omitting all NAs
+# preparing for distinguishing annotator and total mistakes
+# only looking at publications, not pages (assuming that overlooking info in same publication is annotator mistake)
+values_both$Source_2008 <- str_replace_all(values_both$Source_2008, "\\[.*?\\]", "")
+values_both$Source_2020.3 <- str_replace_all(values_both$Source_2020.3, "\\[.*?\\]", "")  
 
-values_both2 <- inner_join(
-  select(wals_values_2008, Language_ID, Parameter_ID, Value) %>%
-    rename(Value_2008 = Value)
-  , select(wals_values_2020.3, Language_ID, Parameter_ID, Value) %>%
-    rename(Value_2020.3 = Value))
 
-sum(values_both2$Value_2008 != values_both2$Value_2020.3)
-  # 388
-round(sum(values_both2$Value_2008 != values_both2$Value_2020.3) / nrow(values_both2) * 100, 2)
+## version 1: omitting all NAs
+
+values_both1 <- values_both %>% 
+  filter(Value_2008 != -2 & Value_2020.3 != -1)
+
+## total mistakes 
+wals_mistakes_total1 <- nrow(filter(values_both1, value_discrepancy == T))
+round(wals_mistakes_total1 / nrow(values_both1) * 100, 2)
   # 0.67%
 
+## annotator mistakes
+wals_mistakes_annotator1 <- values_both1 %>% 
+  filter(value_discrepancy == T) %>% 
+  mutate(sources_diff = (Source_2008 != Source_2020.3))
+wals_mistakes_annotator1 <- nrow(filter(annotator_mistakes1, sources_diff == F))
+round(wals_mistakes_annotator1 / nrow(values_both1) * 100, 2)
+  # 0.50%
 
-## version 3: omitting only 2008's NAs (considering *removed* but not *added* data points for mistakes)
 
-values_both3 <- filter(values_both, Value_2008 != -2)
+## version 2: omitting only 2008's NAs 
+  # (considering *removed* but not *added* data points for mistakes) -> mostly changes/mistakes of language_ID
 
+values_both2 <- filter(values_both, Value_2008 != -2)
 
-nrow (values_both3)
-  # 58065
-sum(values_both3$Value_2008 != values_both3$Value_2020.3)
-  # 910
-round(sum(values_both3$Value_2008 != values_both3$Value_2020.3) / nrow (values_both3) * 100, 2)
-  # 1.57%
+## total mistakes 
+wals_mistakes_total2 <- nrow(filter(values_both2, value_discrepancy == T))
+round(wals_mistakes_total2 / nrow(values_both2) * 100, 2)
+# 1.57%
+
+## annotator mistakes
+wals_mistakes_annotator2 <- values_both2 %>% 
+  filter(value_discrepancy == T) %>% 
+  mutate(sources_diff = (Source_2008 != Source_2020.3))
+wals_mistakes_annotator2 <- nrow(filter(annotator_mistakes2, sources_diff == F))
+round(wals_mistakes_annotator2 / nrow(values_both2) * 100, 2)
+# 0.49%
 
 
 ########################################################
@@ -265,10 +286,10 @@ nrow(filter(wals_2008, Name == "Tukang Besi"))
 round(20/120 * 100, 2)
  # 16.67%
 
-# if we accept this, we should exclude 2 WALS features which are
-# only relevant to sign languages
+# if we accept this, we should exclude 2 WALS features which are only relevant to sign languages
+# total mistake rate (incl. error-by-omission) version 2
 round(20/140 * 100, 2)
-  # 14.29
+  # 14.29%
 
 
 ########################################################
@@ -278,9 +299,11 @@ round(20/140 * 100, 2)
 # 16.3% disagreement on 1228 values.
 # under the assumption that in disagreement one of the two coders will be correct:
 
+# total mistake rate
 16.3 / 2
   # 8.15%
 
+# annotator mistake rate
 # ~ 1/3 of this is about disagreement about the same source
 # again under the assumption that one will be correct
 round((16.3/3)/2)
@@ -291,7 +314,7 @@ round((16.3/3)/2)
 ############# 10. GB: Inter-rater study ################
 ########################################################
 
-# total disagreement (including over '?')
+# total mistake rate (including over '?')
 round(((1996+(4323-3753))/7876)/2 *100, 2)
   # 16.29%
 
@@ -314,6 +337,8 @@ round(disagreement_noNA_Same / 2, 2)
 # and gave them equal weight by adding them up and dividing by their number
 # (assuming that the pairwise comparisons contain the same number of data points)
 
+# total mistake rates
+
 # among research assistants
 average_mistake_RAs <- round(c((((22 + 21 + 13 + 9 + 9) / 2) / 5), (((22 + 21 + 13 + 9 + 9) / 2) / 5) + (6/195) * (22 + 21 + 13 + 9 + 9) / 2 / 5), 2) # adjusting for 3% non binary features
 average_mistake_RAs[1] # because of our assumption that 1 annotator will be right, using only the first value
@@ -334,8 +359,8 @@ average_mistake_both[1] # because of our assumption that 1 annotator will be rig
 ################### 12. Kinbank ########################
 ########################################################
 
+# total mistake rate
 # binarized structural pattern (dis)agreement, thus simply /2
-
 round((1 - 0.8) / 2 * 100, 2)
   # 10.00 %
 
